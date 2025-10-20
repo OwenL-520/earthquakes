@@ -4,6 +4,8 @@
 import requests
 import json
 from datetime import datetime
+import matplotlib.pyplot as plt
+import pandas as pd
 
 def get_data():
     """
@@ -169,6 +171,99 @@ def analyze_earthquakes(data):
             
             print(f"{i+1}. Magnitude {magnitude:.2f} - {place} - {time}")
 
+def compute_yearly_stats(data):
+    """Compute number of earthquakes and average magnitude per year."""
+    if not data or 'features' not in data:
+        return pd.DataFrame(columns=['year', 'count', 'avg_mag'])
+
+    rows = []
+    for eq in data['features']:
+        t = get_time(eq)
+        if t is None:
+            continue
+        mag = get_magnitude(eq)
+        # skip None magnitudes
+        if mag is None:
+            continue
+        rows.append({'year': t.year, 'mag': mag})
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return pd.DataFrame(columns=['year', 'count', 'avg_mag'])
+
+    grouped = df.groupby('year').agg(count=('mag', 'size'), avg_mag=('mag', 'mean')).reset_index()
+    grouped = grouped.sort_values('year')
+    return grouped
+
+
+def plot_yearly_stats(grouped, out_image_path=None, out_csv_path=None):
+    """Create and save two plots in a single figure: count per year (bar)
+    and average magnitude per year (line). Saves image and optionally CSV.
+    """
+    if grouped is None or grouped.empty:
+        print("No yearly data to plot")
+        return
+
+    # Ensure year column is integer and sorted
+    grouped = grouped.copy()
+    grouped['year'] = grouped['year'].astype(int)
+    grouped = grouped.sort_values('year')
+
+    years = grouped['year']
+    counts = grouped['count']
+    avgs = grouped['avg_mag']
+
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+    ax2 = ax1.twinx()
+
+    # Capture the bar container so we can annotate values on top
+    bars = ax1.bar(years, counts, color='C0', alpha=0.6, label='Count')
+    ax2.plot(years, avgs, color='C1', marker='o', linewidth=2, label='Avg Magnitude')
+
+    # Put numeric year labels on x-axis and rotate if needed
+    ax1.set_xticks(years)
+    ax1.set_xticklabels(years.astype(str), rotation=45)
+
+    ax1.set_xlabel('Year')
+    ax1.set_ylabel('Number of earthquakes', color='C0')
+    ax2.set_ylabel('Average magnitude', color='C1')
+    ax1.tick_params(axis='y', labelcolor='C0')
+    ax2.tick_params(axis='y', labelcolor='C1')
+
+    # Annotate bar values on top
+    for rect in bars:
+        height = rect.get_height()
+        ax1.text(rect.get_x() + rect.get_width() / 2, height + max(counts) * 0.01,
+                 f'{int(height)}', ha='center', va='bottom', fontsize=8, color='black')
+
+    ax1.set_title('Earthquake frequency and average magnitude per year')
+    fig.tight_layout()
+
+    # Show legend combining both axes
+    handles1, labels1 = ax1.get_legend_handles_labels()
+    handles2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(handles1 + handles2, labels1 + labels2, loc='upper left')
+
+    # Save the figure to a file
+    image_path = out_image_path or 'earthquake_yearly_stats.png'
+    try:
+        fig.savefig(image_path, dpi=200)
+        print(f"Saved plot image to: {image_path}")
+    except Exception as e:
+        print(f"Failed to save image: {e}")
+
+    # Optionally save the yearly data to CSV
+    if out_csv_path is None:
+        out_csv_path = 'yearly_stats.csv'
+    try:
+        grouped.to_csv(out_csv_path, index=False)
+        print(f"Saved yearly stats to: {out_csv_path}")
+    except Exception as e:
+        print(f"Failed to save CSV: {e}")
+
+    # Close the figure to free resources
+    plt.close(fig)
+
 def main():
     """Main function"""
     print("UK Earthquake Data Analysis")
@@ -186,6 +281,10 @@ def main():
     
     # Analyze earthquake data
     analyze_earthquakes(data)
+
+    # New: compute and plot yearly statistics
+    yearly = compute_yearly_stats(data)
+    plot_yearly_stats(yearly)
     
     # Output final results
     print("\n" + "=" * 50)
